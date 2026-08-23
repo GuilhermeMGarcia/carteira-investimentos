@@ -47,7 +47,7 @@ As versões abaixo são cópias públicas, sem dados financeiros pessoais e sem 
 
 ## Scripts (Google Apps Script)
 
-Os scripts que automatizam a planilha "Guilherme" estão organizados por responsabilidade:
+Os scripts que automatizam a planilha "Carteira_Ivestimento" estão organizados por responsabilidade:
 
 ### `Script_Carteira/`
 | Script | Função | Fonte de dado |
