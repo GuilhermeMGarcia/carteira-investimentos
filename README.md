@@ -9,9 +9,9 @@ Acompanhar uma carteira de investimentos direito exige juntar três coisas que n
 ## Como as 3 planilhas se cruzam
 
 ```
-┌───────────────────────┐   Preço Teto Bazin, DPA,    ┌───────────────────┐
-│                        │   Margem do Fluxo de Caixa  │                   │
-│   Guilherme            │ ───────────────────────────►│   DFs_Ações       │
+┌────────────────────────┐   Preço Teto Bazin, DPA,     ┌───────────────────┐
+│                        │   Margem do Fluxo de Caixa   │                   │
+│ Carteira_Ivestimento   │ ───────────────────────────► │   DFs_Ações       │
 │   (Carteira/Painel)    │                              │   (BP/DRE/DFC     │
 │                        │ ◄─────────────────────────── │   trimestral)     │
 │                        │      FCD_Valor               │                   │
@@ -20,7 +20,7 @@ Acompanhar uma carteira de investimentos direito exige juntar três coisas que n
            │ Preço_Justo
            │ (NTNB + Spread)
            ▼
-┌───────────────────────┐
+┌────────────────────────┐
 │                        │
 │   DFs_FIIs             │
 │   (DRE/BP mensal       │
