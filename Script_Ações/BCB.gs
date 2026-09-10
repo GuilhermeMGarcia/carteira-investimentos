@@ -1,60 +1,86 @@
 /**
  * MÓDULO: BANCO CENTRAL (SELIC E IPCA)
- * Busca indicadores macroeconômicos via API do BCB
+ * Busca indicadores macroeconômicos via API do BCB de forma paralela e resiliente.
  */
 function atualizarBCB() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const aba = ss.getSheetByName("Indicadores_Ações");
   const abaStatus = ss.getSheetByName("Status_Script");
 
+  if (!aba) return;
+
   let status = "OK ✅";
-  let resultados = [[""], [""]]; // Matriz para as células B36 e B37
+  const resultados = [[""], [""]]; // Selic (Linha 3) e IPCA (Linha 4)
 
   try {
-    // 1. BUSCAR SELIC (SGS 1178) - Taxa anualizada
+    // 1. REQUISIÇÕES EM PARALELO (Reduz o tempo de espera pela metade)
+    const requests = [
+      {
+        url: 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.1178/dados/ultimos/1?formato=json',
+        method: 'get',
+        muteHttpExceptions: true
+      },
+      {
+        url: 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.433/dados/ultimos/12?formato=json',
+        method: 'get',
+        muteHttpExceptions: true
+      }
+    ];
+
+    const [resSelic, resIpca] = UrlFetchApp.fetchAll(requests);
+
+    // 2. PROCESSA SELIC
     try {
-      const resSelic = UrlFetchApp.fetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.1178/dados/ultimos/1?formato=json');
-      const jsonSelic = JSON.parse(resSelic.getContentText());
-      resultados[0][0] = parseFloat(jsonSelic[0].valor) / 100; // Salva como decimal para formatar como % na planilha
+      if (resSelic.getResponseCode() === 200) {
+        const jsonSelic = JSON.parse(resSelic.getContentText());
+        if (jsonSelic && jsonSelic.length > 0 && jsonSelic[0].valor) {
+          resultados[0][0] = parseFloat(jsonSelic[0].valor) / 100;
+        } else {
+          throw new Error("Payload Selic inválido");
+        }
+      } else {
+        throw new Error(`HTTP ${resSelic.getResponseCode()}`);
+      }
     } catch (e) {
-      Logger.log("Erro Selic: " + e);
+      Logger.log("Erro Selic: " + e.message);
       resultados[0][0] = "Erro Selic";
       status = "ALERTA ⚠️";
     }
 
- // 2. BUSCAR IPCA (SGS 433) - Acumulado 12 meses via Juros Compostos
+    // 3. PROCESSA IPCA (Acumulado 12 meses via Juros Compostos)
     try {
-      const resIpca = UrlFetchApp.fetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.433/dados/ultimos/12?formato=json');
-      const jsonIpca = JSON.parse(resIpca.getContentText());
-      
-      // ALGORITMO DE JUROS COMPOSTOS:
-      // Transforma cada taxa da API em fator multiplicador (1 + taxa) e multiplica todos entre si.
-      const produtoFatores = jsonIpca.reduce((accFator, item) => {
-        const taxaMensalDecimal = parseFloat(item.valor) / 100;
-        const fatorMensal = 1 + taxaMensalDecimal;
-        return accFator * fatorMensal;
-      }, 1);
+      if (resIpca.getResponseCode() === 200) {
+        const jsonIpca = JSON.parse(resIpca.getContentText());
+        if (Array.isArray(jsonIpca) && jsonIpca.length > 0) {
+          const produtoFatores = jsonIpca.reduce((accFator, item) => {
+            const taxaMensalDecimal = parseFloat(item.valor) / 100;
+            return accFator * (1 + taxaMensalDecimal);
+          }, 1);
 
-      // Subtrai 1 do produto final para retornar ao formato de taxa decimal puro (ex: 0.0431 para 4,31%)
-      const acumuladoComposto = produtoFatores - 1;
-      
-      resultados[1][0] = acumuladoComposto; // Salva o IPCA corrigido na matriz
+          resultados[1][0] = produtoFatores - 1;
+        } else {
+          throw new Error("Payload IPCA inválido");
+        }
+      } else {
+        throw new Error(`HTTP ${resIpca.getResponseCode()}`);
+      }
     } catch (e) {
-      Logger.log("Erro IPCA: " + e);
+      Logger.log("Erro IPCA: " + e.message);
       resultados[1][0] = "Erro IPCA";
       status = "ALERTA ⚠️";
     }
-    
-    // ESCREVE NO BLOCO A3:B4 (2 linhas, 1 coluna)
-    aba.getRange(3, 2, 2, 1).setValues(resultados);
-    aba.getRange(3, 2, 2, 1).setNumberFormat("0.00%"); // Formata como porcentagem
+
+    // 4. ESCRITA E FORMATAÇÃO EM MASSA (Junta setValues e setNumberFormat)
+    const rangeAlvo = aba.getRange(3, 2, 2, 1);
+    rangeAlvo.setValues(resultados);
+    rangeAlvo.setNumberFormat("0.00%");
 
   } catch (e) {
     Logger.log("Erro Geral BCB: " + e);
     status = "ERRO ❌";
   }
 
-  // ==== ATUALIZAÇÃO DE STATUS (A3:C3) ====
+  // 5. REGISTRO DE STATUS (A4:C4)
   if (abaStatus) {
     abaStatus.getRange("A3:C3").setValues([[
       "Selic_IPCA", 
