@@ -15,43 +15,40 @@ function atualizarCalendarioEventos() {
 
   try {
     // ------------------------------------------------------------------
-    // 1. EXTRAI A LISTA DE FIIs DA CARTEIRA (Aba Indicadores | Coluna B3 em diante)
+    // 1. EXTRAI A LISTA DE FIIs DA CARTEIRA
     // ------------------------------------------------------------------
     const ultimaLinhaInd = abaIndicadores.getLastRow();
     const tickersPermitidos = [];
-    
+
     if (ultimaLinhaInd >= 3) {
       const listaFlls = abaIndicadores.getRange(3, 2, ultimaLinhaInd - 2, 1).getValues();
       for (let i = 0; i < listaFlls.length; i++) {
         const ticker = listaFlls[i][0] ? listaFlls[i][0].toString().trim().toUpperCase() : "";
-        if (ticker === "") break; // Para na primeira célula em branco
+        if (ticker === "") break;
         tickersPermitidos.push(ticker);
       }
     }
 
     if (tickersPermitidos.length === 0) {
-      // Registra Erro na linha 3 do Status
       abaStatus.getRange("A3:C3").setValues([["Script_Calendario", "Erro ❌", new Date()]]);
       ss.toast("Aviso: Nenhum FII encontrado na coluna B (a partir da B3).", "Aviso", 4);
       return;
     }
 
     // ------------------------------------------------------------------
-    // 2. BUSCA OS CNPJs NA MESMA ABA (A partir da linha 23) E FILTRA A CARTEIRA
+    // 2. BUSCA OS CNPJs CORRESPONDENTES
     // ------------------------------------------------------------------
     ss.toast("Filtrando CNPJs dos FIIs...", "Processando", 3);
-
     const dadosColunaA = abaIndicadores.getRange(23, 1, Math.max(1, ultimaLinhaInd - 22), 1).getValues().flat();
     const dadosColunaQ = abaIndicadores.getRange(23, 17, Math.max(1, ultimaLinhaInd - 22), 1).getValues().flat();
-    
     const fundosLote = [];
-    
+
     for (let i = 0; i < dadosColunaA.length; i++) {
       const ticker = dadosColunaA[i] ? dadosColunaA[i].toString().trim().toUpperCase() : "";
       const linkDoc = dadosColunaQ[i] ? dadosColunaQ[i].toString().trim() : "";
-      
+
       if (ticker === "" || ticker.includes("RENDA")) break;
-      
+
       if (tickersPermitidos.includes(ticker)) {
         const cnpjMatch = linkDoc.match(/cnpjFundo=(\d{14})/i) || linkDoc.match(/\d{14}/);
         if (cnpjMatch) {
@@ -72,9 +69,9 @@ function atualizarCalendarioEventos() {
     ss.toast(`Consultando API para ${fundosLote.length} FIIs...`, "Aguarde", 5);
 
     const resposta = UrlFetchApp.fetch(URL_API_CALENDARIO, {
-      "method": "post", 
+      "method": "post",
       "contentType": "application/json",
-      "payload": JSON.stringify({ "fundos": fundosLote }), 
+      "payload": JSON.stringify({ "fundos": fundosLote }),
       "muteHttpExceptions": true
     });
 
@@ -82,53 +79,68 @@ function atualizarCalendarioEventos() {
       const eventos = JSON.parse(resposta.getContentText());
       eventos.sort((a, b) => a.ticker.localeCompare(b.ticker));
 
-      ss.toast("Limpando e preenchendo aba Calendário...", "Processando", 3);
+      // Limpa dados e formatações anteriores
+      const ultimaLinhaCal = abaCalendario.getLastRow();
+      if (ultimaLinhaCal > 1) {
+        abaCalendario.getRange(2, 1, ultimaLinhaCal - 1, 5).clearContent().clearFormat();
+      }
 
-      // Limpeza do Calendário
-      abaCalendario.getRange(2, 1, Math.max(1, abaCalendario.getLastRow() - 1), 5).clearContent().clearFormat();
+      if (eventos.length === 0) {
+        abaStatus.getRange("A3:C3").setValues([["Script_Calendario", "OK ✅", new Date()]]);
+        ss.toast("Nenhum evento encontrado para o mês atual.", "Sucesso", 5);
+        return;
+      }
 
       // ------------------------------------------------------------------
-      // 4. GRAVAÇÃO DOS DADOS E CORES
+      // 4. PREPARAÇÃO DE MATRIZES EM LOTE (Sem loops lentos na planilha)
       // ------------------------------------------------------------------
-      eventos.forEach((ev, index) => {
-        const linha = index + 2;
+      const matrizValores = [];
+      const matrizCores = [];
+
+      eventos.forEach(ev => {
         const dataPura = ev.data_envio ? ev.data_envio.substring(0, 10) : "";
         const linkFinal = (ev.link && ev.link !== "") ? ev.link : "https://fnet.bmfbovespa.com.br/fnet/publico/abrirGerenciadorDocumentosCVM";
-        
-        const rowData = [
-          ev.ticker, 
-          dataPura, 
-          ev.tipo_documento, 
-          ev.assunto, 
-          `=HYPERLINK("${linkFinal}"; "Visualizar PDF 📄")`
-        ];
-        
-        const rangeLinha = abaCalendario.getRange(linha, 1, 1, 5);
-        rangeLinha.setValues([rowData]);
 
-        // Cores
+        // Prepara linha de dados
+        matrizValores.push([
+          ev.ticker,
+          dataPura,
+          ev.tipo_documento,
+          ev.assunto,
+          `=HYPERLINK("${linkFinal}"; "Visualizar PDF 📄")`
+        ]);
+
+        // Prepara cores da linha
         let cor = "#ffffff";
         if (ev.tipo_documento.includes("Informe")) cor = "#d9ead3";
         else if (ev.tipo_documento.includes("Relatório")) cor = "#c9daf8";
         else if (ev.tipo_documento.includes("Fato")) cor = "#fce5cd";
-        
-        rangeLinha.setBackground(cor);
+
+        matrizCores.push([cor, cor, cor, cor, cor]);
       });
+
+      // ------------------------------------------------------------------
+      // 5. ESCRITA EM LOTE NA PLANILHA (Execução em ms)
+      // ------------------------------------------------------------------
+      ss.toast("Preenchendo planilha...", "Processando", 3);
+      const rangeAlvo = abaCalendario.getRange(2, 1, eventos.length, 5);
+      
+      rangeAlvo.setValues(matrizValores);
+      rangeAlvo.setBackgrounds(matrizCores);
 
       // Recria o Filtro
       let filter = abaCalendario.getFilter();
       if (filter) filter.remove();
       abaCalendario.getRange(1, 1, eventos.length + 1, 5).createFilter();
 
-      // 🔥 ATUALIZA A LINHA 3 DA ABA STATUS_SCRIPT (A3:C3)
       abaStatus.getRange("A3:C3").setValues([["Script_Calendario", "OK ✅", new Date()]]);
-
-      ss.toast(`Calendário atualizado com sucesso! (${eventos.length} registros)`, "Sucesso", 5);
+      ss.toast(`Calendário atualizado! (${eventos.length} registros)`, "Sucesso", 5);
 
     } else {
       abaStatus.getRange("A3:C3").setValues([["Script_Calendario", "Erro ❌", new Date()]]);
       ss.toast("Erro na API: Código " + resposta.getResponseCode(), "Erro", 5);
     }
+
   } catch (e) {
     Logger.log(e);
     abaStatus.getRange("A3:C3").setValues([["Script_Calendario", "Erro ❌", new Date()]]);
