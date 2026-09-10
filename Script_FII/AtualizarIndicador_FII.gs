@@ -43,88 +43,94 @@ function atualizarFIIs() {
 }
 
 /**
- * MÓDULO FIIs: Processamento dinâmico inteligente e isolado por blocos
+ * MÓDULO FIIs: Processamento dinâmico em lotes controlados (Ultra-rápido, Estável e Seguro)
  */
 function processarBlocoFiisDinamico(aba) {
-  const linhaInicial = 23; // Linha do cabeçalho "Fii, # VP/Cota..."
-  const colunaInicial = 1; // Coluna A (onde ficam os Tickers)
+  const linhaInicial = 23; // Linha do cabeçalho
+  const colunaInicial = 1; // Coluna A (Tickers)
   
-  // 1. PEGA TODOS OS VALORES DA COLUNA A A PARTIR DA LINHA DE CABEÇALHO
   const limiteMaximoLinhas = aba.getLastRow() - linhaInicial + 1;
   if (limiteMaximoLinhas <= 0) return null;
   
   const valoresColunaA = aba.getRange(linhaInicial, colunaInicial, limiteMaximoLinhas, 1).getValues().flat();
   
-  // 2. IDENTIFICA O TAMANHO DO BLOCO DE FIIS DINAMICAMENTE
-  // O loop vai descer a coluna A. Se achar uma linha em branco ou o começo da tabela "BCB_2", ele para ali!
   let totalLinhasBloco = 0;
-  
-  for (let i = 1; i < valoresColunaA.length; i++) { // Começa de 1 para pular o cabeçalho "Fii"
+  for (let i = 1; i < valoresColunaA.length; i++) {
     const valorCelulas = valoresColunaA[i] ? valoresColunaA[i].toString().trim() : "";
-    
-    // Se a célula estiver vazia ou encontrar a palavra "Renda" ou "BCB_2", o bloco de FIIs acabou
     if (valorCelulas === "" || valorCelulas.includes("Renda") || valorCelulas.includes("BCB")) {
       break;
     }
     totalLinhasBloco++;
   }
 
-  // Se não houver nenhum ticker listado abaixo do cabeçalho, encerra o processamento
   if (totalLinhasBloco === 0) return null;
 
-  // Extrai apenas os tickers pertencentes ao bloco dinâmico detectado
   const tickers = valoresColunaA.slice(1, totalLinhasBloco + 1);
-  
-  const matrizResultados = [];
   const erros = [];
-  const totalColunasMapeadas = 13; // B até N (Quantidade exata de colunas de dados)
+  const TOTAL_COLUNAS_MAPEADAS = 16;
+  const matrizResultados = [];
 
-  tickers.forEach((ticker) => {
-    const tickerLimpo = ticker ? ticker.toString().trim() : "";
+  // 🎯 CONTROLE DE FLUXO: Divide a lista em lotes de no máximo 5 FIIs por vez
+  const TAMANHO_LOTE = 5;
 
-    if (!tickerLimpo) {
-      matrizResultados.push(new Array(totalColunasMapeadas).fill(""));
-      return;
+  for (let i = 0; i < tickers.length; i += TAMANHO_LOTE) {
+    const loteTickers = tickers.slice(i, i + TAMANHO_LOTE);
+
+    const requests = loteTickers.map(ticker => {
+      const tickerLimpo = ticker ? ticker.toString().trim() : "";
+      return {
+        url: `${BASE_URL}fii/${tickerLimpo}`,
+        method: "get",
+        muteHttpExceptions: true
+      };
+    });
+
+    // Dispara o lote atual (máximo 5 em paralelo por vez)
+    const responses = UrlFetchApp.fetchAll(requests);
+
+    responses.forEach((res, index) => {
+      const tickerAtual = loteTickers[index].toString().trim();
+
+      try {
+        if (res.getResponseCode() !== 200) {
+          throw new Error(`HTTP ${res.getResponseCode()}`);
+        }
+        
+        const json = JSON.parse(res.getContentText());
+
+        matrizResultados.push([
+          json.vp_cota ?? "",               // Coluna B
+          json.ffo_yield ?? "",             // Coluna C
+          json.div_yield ?? "",             // Coluna D
+          json.patrimonio ?? "",            // Coluna E
+          json.patrimonio_liq ?? "",        // Coluna F
+          json.receita_3m ?? "",            // Coluna G
+          json.venda_de_ativos_3m ?? "",    // Coluna H
+          json.ffo_3m ?? "",                // Coluna I
+          json.rend_distribuído_3m ?? "",   // Coluna J
+          json.rend_distribuído_12m ?? "",  // Coluna K
+          json.cap_rate ?? "",              // Coluna L
+          json.vacância_média ?? "",        // Coluna M
+          json.qtd_imóveis ?? "",           // Coluna N
+          json.qtd_unidades ?? "",          // Coluna O
+          json.qtd_cotas ?? "",             // Coluna P
+          json.doc ?? ""                    // Coluna Q
+        ]);
+      } catch (e) {
+        erros.push(`FII ${tickerAtual}: ${e.message}`);
+        matrizResultados.push(new Array(TOTAL_COLUNAS_MAPEADAS).fill("⚠️"));
+      }
+    });
+
+    // Pequena pausa entre lotes (250ms) para não sobrecarregar o Fundamentus
+    if (i + TAMANHO_LOTE < tickers.length) {
+      Utilities.sleep(250);
     }
+  }
 
-    try {
-      const res = UrlFetchApp.fetch(`${BASE_URL}/fii/${tickerLimpo}`, { muteHttpExceptions: true });
-      if (res.getResponseCode() !== 200) throw new Error("Ticker não encontrado");
-      
-      const json = JSON.parse(res.getContentText());
-
-      matrizResultados.push([
-        json.vp_cota || "",             // Coluna B
-        json.ffo_yield || "",            // Coluna C
-        json.div_yield || "",  
-        json.patrimonio || "",          
-        json.patrimonio_liq || "",      
-        json.receita_3m || "",          
-        json.venda_de_ativos_3m || "",  
-        json.ffo_3m || "",              
-        json.rend_distribuído_3m || "", 
-        json.rend_distribuído_12m || "",
-        json.cap_rate || "",            
-        json.vacância_média || "",      
-        json.qtd_imóveis || "",         
-        json.qtd_unidades || "",        
-        json.qtd_cotas || "",
-        json.doc || ""            
-      ]);
-    } catch (e) {
-      erros.push(`FII ${tickerLimpo}: ${e.message}`);
-      matrizResultados.push(new Array(totalColunasMapeadas).fill("⚠️"));
-    }
-  });
-
+  // GRAVAÇÃO EM MASSA (Zero congelamento de planilha)
   if (matrizResultados.length > 0) {
-    const totalLinhasNovas = matrizResultados.length;
-    const totalColunasNovas = matrizResultados[0].length;
-
-    // Define a região exata para os dados na coluna B (coluna 2), logo abaixo do cabeçalho
-    const rangeDestino = aba.getRange(linhaInicial + 1, 2, totalLinhasNovas, totalColunasNovas);
-    
-    // Limpa apenas o espaço correspondente aos dados deste bloco e insere os novos valores
+    const rangeDestino = aba.getRange(linhaInicial + 1, 2, matrizResultados.length, TOTAL_COLUNAS_MAPEADAS);
     rangeDestino.clearContent();
     rangeDestino.setValues(matrizResultados);
   }
