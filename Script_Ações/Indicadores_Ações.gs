@@ -69,7 +69,7 @@ function processarBlocoAcoesDinamico(aba) {
   const tickers = valoresColunaA.slice(0, totalLinhasBloco);
   const erros = [];
   
-  // 🎯 ATUALIZADO: 15 Colunas mapeadas (B até P)
+  // 🎯 15 Colunas mapeadas (B até P)
   const TOTAL_COLUNAS_MAPEADAS = 15; 
   const matrizResultados = [];
 
@@ -112,23 +112,25 @@ function processarBlocoAcoesDinamico(aba) {
         
         const json = JSON.parse(res.getContentText());
 
-        // Mapeamento dos Dados Brutos + Beta + Mais Retorno (15 colunas)
+        // Mapeamento dos Dados:
+        // Colunas B a L -> Mantêm o dado puro exatamente como vem da API
+        // Colunas M a P -> Tratam a string para número puro via parseValorNumerico
         matrizResultados.push([
-          json.ult_balanco_processado ?? "", // Coluna B
-          json.qtd_acao ?? "",               // Coluna C
-          json.cagr_receita_5a ?? "",        // Coluna D
-          json.ativo ?? "",                  // Coluna E
-          json.disponibilidades ?? "",       // Coluna F
-          json.divida_bruta ?? "",           // Coluna G
-          json.patrimonio_liquido ?? "",     // Coluna H
-          json.receita_liquida_12m ?? "",    // Coluna I
-          json.ebit_12m ?? "",               // Coluna J
-          json.lucro_liquido_12m ?? "",      // Coluna K
-          json.beta_ibov_3a ?? "",            // Coluna L
-          json.rentabilidade_total ?? "",    // Coluna M
-          json.sharpe_total ?? "",           // Coluna N
-          json.rentabilidade_12m ?? "",      // Coluna O
-          json.sharpe_12m ?? ""              // Coluna P
+          json.ult_balanco_processado ?? "",                     // Coluna B
+          json.qtd_acao ?? "",                                   // Coluna C
+          json.cagr_receita_5a ?? "",                            // Coluna D
+          json.ativo ?? "",                                      // Coluna E
+          json.disponibilidades ?? "",                           // Coluna F
+          json.divida_bruta ?? "",                               // Coluna G
+          json.patrimonio_liquido ?? "",                         // Coluna H
+          json.receita_liquida_12m ?? "",                        // Coluna I
+          json.ebit_12m ?? "",                                   // Coluna J
+          json.lucro_liquido_12m ?? "",                          // Coluna K
+          json.beta_ibov_3a ?? "",                               // Coluna L
+          parseValorNumerico(json.rentabilidade_total),          // Coluna M
+          json.sharpe_total ?? "",                 // Coluna N
+          json.rentabilidade_12m ?? "",            // Coluna O
+          json.sharpe_12m ?? ""                    // Coluna P
         ]);
       } catch (e) {
         erros.push(`Ação \({tickerAtual}:\){e.message}`);
@@ -150,4 +152,15 @@ function processarBlocoAcoesDinamico(aba) {
   }
 
   return erros.length > 0 ? erros : null;
+}
+
+
+/**
+ * HELPER: Remove apenas o caractere de porcentagem %, mantendo a formatação PT-BR intacta ("36.433,34")
+ */
+function parseValorNumerico(valor) {
+  if (valor === null || valor === undefined || valor === "") return "";
+  
+  // Apenas remove o símbolo de % e limpa espaços nas pontas
+  return valor.toString().replace("%", "").trim();
 }
